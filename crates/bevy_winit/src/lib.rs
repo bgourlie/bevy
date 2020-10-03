@@ -14,10 +14,8 @@ use bevy_math::Vec2;
 use bevy_window::{
     CreateWindow, CursorMoved, Window, WindowCloseRequested, WindowCreated, WindowResized, Windows,
 };
-use event::Event;
 use winit::{
-    event,
-    event::{DeviceEvent, WindowEvent},
+    event::{self, DeviceEvent, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
 };
 
@@ -71,7 +69,7 @@ where
     target_os = "netbsd",
     target_os = "openbsd"
 )))]
-fn run_return<F>(event_loop: &mut EventLoop<()>, event_handler: F)
+fn run_return<F>(_event_loop: &mut EventLoop<()>, _event_handler: F)
 where
     F: FnMut(Event<'_, ()>, &EventLoopWindowTarget<()>, &mut ControlFlow),
 {

@@ -1,7 +1,13 @@
 use bevy_ecs::ResMut;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[cfg(target_arch = "wasm32")]
+use instant::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 /// Tracks elapsed time since the last update and since the App has started
+#[derive(Debug)]
 pub struct Time {
     pub delta: Duration,
     pub instant: Option<Instant>,

@@ -1,8 +1,8 @@
 use super::Vertex;
 use crate::{
     pipeline::{
-        AsVertexBufferDescriptor, IndexFormat, PrimitiveTopology, RenderPipelines,
-        VertexBufferDescriptor, VertexBufferDescriptors, VertexFormat,
+        AsVertexBufferDescriptor, PrimitiveTopology, RenderPipelines, VertexBufferDescriptor,
+        VertexBufferDescriptors, VertexFormat,
     },
     renderer::{BufferInfo, BufferUsage, RenderResourceContext, RenderResourceId},
 };
@@ -11,7 +11,8 @@ use bevy_asset::{AssetEvent, Assets, Handle};
 use bevy_core::AsBytes;
 use bevy_ecs::{Local, Query, Res, ResMut};
 use bevy_math::*;
-use std::{borrow::Cow, collections::HashSet};
+use bevy_utils::HashSet;
+use std::borrow::Cow;
 use thiserror::Error;
 
 pub const VERTEX_BUFFER_ASSET_INDEX: usize = 0;
@@ -106,10 +107,16 @@ pub enum MeshToVertexBufferError {
 }
 
 #[derive(Debug)]
+pub enum Indices {
+    U16(Vec<u16>),
+    U32(Vec<u32>),
+}
+
+#[derive(Debug)]
 pub struct Mesh {
     pub primitive_topology: PrimitiveTopology,
     pub attributes: Vec<VertexAttribute>,
-    pub indices: Option<Vec<u32>>,
+    pub indices: Option<Indices>,
 }
 
 impl Mesh {
@@ -124,6 +131,7 @@ impl Mesh {
     pub fn get_vertex_buffer_bytes(
         &self,
         vertex_buffer_descriptor: &VertexBufferDescriptor,
+        fill_missing_attributes: bool,
     ) -> Result<Vec<u8>, MeshToVertexBufferError> {
         let length = self.attributes.first().map(|a| a.values.len()).unwrap_or(0);
         let mut bytes = vec![0; vertex_buffer_descriptor.stride as usize * length];
@@ -145,9 +153,11 @@ impl Mesh {
                     }
                 }
                 None => {
-                    return Err(MeshToVertexBufferError::MissingVertexAttribute {
-                        attribute_name: vertex_attribute.name.clone(),
-                    })
+                    if !fill_missing_attributes {
+                        return Err(MeshToVertexBufferError::MissingVertexAttribute {
+                            attribute_name: vertex_attribute.name.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -155,23 +165,17 @@ impl Mesh {
         Ok(bytes)
     }
 
-    pub fn get_index_buffer_bytes(&self, index_format: IndexFormat) -> Option<Vec<u8>> {
-        self.indices.as_ref().map(|indices| match index_format {
-            IndexFormat::Uint16 => indices
-                .iter()
-                .map(|i| *i as u16)
-                .collect::<Vec<u16>>()
-                .as_slice()
-                .as_bytes()
-                .to_vec(),
-            IndexFormat::Uint32 => indices.as_slice().as_bytes().to_vec(),
+    pub fn get_index_buffer_bytes(&self) -> Option<Vec<u8>> {
+        self.indices.as_ref().map(|indices| match &indices {
+            Indices::U16(indices) => indices.as_slice().as_bytes().to_vec(),
+            Indices::U32(indices) => indices.as_slice().as_bytes().to_vec(),
         })
     }
 }
 
 /// Generation for some primitive shape meshes.
 pub mod shape {
-    use super::{Mesh, VertexAttribute};
+    use super::{Indices, Mesh, VertexAttribute};
     use crate::pipeline::PrimitiveTopology;
     use bevy_math::*;
     use hexasphere::Hexasphere;
@@ -233,14 +237,14 @@ pub mod shape {
                 uvs.push(*uv);
             }
 
-            let indices = vec![
+            let indices = Indices::U32(vec![
                 0, 1, 2, 2, 3, 0, // top
                 4, 5, 6, 6, 7, 4, // bottom
                 8, 9, 10, 10, 11, 8, // right
                 12, 13, 14, 14, 15, 12, // left
                 16, 17, 18, 18, 19, 16, // front
                 20, 21, 22, 22, 23, 20, // back
-            ];
+            ]);
 
             Mesh {
                 primitive_topology: PrimitiveTopology::TriangleList,
@@ -329,7 +333,7 @@ pub mod shape {
                 ]
             };
 
-            let indices = vec![0, 2, 1, 0, 3, 2];
+            let indices = Indices::U32(vec![0, 2, 1, 0, 3, 2]);
 
             let mut positions = Vec::new();
             let mut normals = Vec::new();
@@ -369,7 +373,7 @@ pub mod shape {
                 ([-extent, 0.0, -extent], [0.0, 1.0, 0.0], [0.0, 1.0]),
             ];
 
-            let indices = vec![0, 2, 1, 0, 3, 2];
+            let indices = Indices::U32(vec![0, 2, 1, 0, 3, 2]);
 
             let mut positions = Vec::new();
             let mut normals = Vec::new();
@@ -411,6 +415,15 @@ pub mod shape {
 
     impl From<Icosphere> for Mesh {
         fn from(sphere: Icosphere) -> Self {
+            if sphere.subdivisions >= 80 {
+                let temp_sphere = Hexasphere::new(sphere.subdivisions, |_| ());
+
+                panic!(
+                    "Cannot create an icosphere of {} subdivisions due to there being too many vertices being generated: {} (Limited to 65535 vertices or 79 subdivisions)",
+                    sphere.subdivisions,
+                    temp_sphere.raw_points().len()
+                );
+            }
             let hexasphere = Hexasphere::new(sphere.subdivisions, |point| {
                 let inclination = point.z().acos();
                 let azumith = point.y().atan2(point.x());
@@ -441,6 +454,8 @@ pub mod shape {
             for i in 0..20 {
                 hexasphere.get_indices(i, &mut indices);
             }
+
+            let indices = Indices::U32(indices);
 
             Mesh {
                 primitive_topology: PrimitiveTopology::TriangleList,
@@ -497,7 +512,7 @@ pub fn mesh_resource_provider_system(
             vertex_buffer_descriptor
         }
     };
-    let mut changed_meshes = HashSet::new();
+    let mut changed_meshes = HashSet::<Handle<Mesh>>::default();
     let render_resource_context = &**render_resource_context;
     for event in state.mesh_event_reader.iter(&mesh_events) {
         match event {
@@ -520,7 +535,7 @@ pub fn mesh_resource_provider_system(
     for changed_mesh_handle in changed_meshes.iter() {
         if let Some(mesh) = meshes.get(changed_mesh_handle) {
             let vertex_bytes = mesh
-                .get_vertex_buffer_bytes(&vertex_buffer_descriptor)
+                .get_vertex_buffer_bytes(&vertex_buffer_descriptor, true)
                 .unwrap();
             // TODO: use a staging buffer here
             let vertex_buffer = render_resource_context.create_buffer_with_data(
@@ -531,7 +546,7 @@ pub fn mesh_resource_provider_system(
                 &vertex_bytes,
             );
 
-            let index_bytes = mesh.get_index_buffer_bytes(IndexFormat::Uint16).unwrap();
+            let index_bytes = mesh.get_index_buffer_bytes().unwrap();
             let index_buffer = render_resource_context.create_buffer_with_data(
                 BufferInfo {
                     buffer_usage: BufferUsage::INDEX,
@@ -634,7 +649,7 @@ mod tests {
 
         let descriptor = Vertex::as_vertex_buffer_descriptor();
         assert_eq!(
-            mesh.get_vertex_buffer_bytes(descriptor).unwrap(),
+            mesh.get_vertex_buffer_bytes(descriptor, true).unwrap(),
             expected_vertices.as_bytes(),
             "buffer bytes are equal"
         );

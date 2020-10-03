@@ -2,7 +2,7 @@ use bevy_asset::{Assets, Handle};
 use bevy_math::Vec2;
 use bevy_render::texture::{Texture, TextureFormat};
 use bevy_sprite::{DynamicTextureAtlasBuilder, TextureAtlas};
-use std::collections::HashMap;
+use bevy_utils::HashMap;
 
 pub struct FontAtlas {
     pub dynamic_texture_atlas_builder: DynamicTextureAtlasBuilder,
@@ -24,7 +24,7 @@ impl FontAtlas {
         let texture_atlas = TextureAtlas::new_empty(atlas_texture, size);
         Self {
             texture_atlas: texture_atlases.add(texture_atlas),
-            glyph_to_index: HashMap::new(),
+            glyph_to_index: HashMap::default(),
             dynamic_texture_atlas_builder: DynamicTextureAtlasBuilder::new(size, 1),
         }
     }
@@ -39,15 +39,16 @@ impl FontAtlas {
         texture_atlases: &mut Assets<TextureAtlas>,
         character: char,
         texture: &Texture,
-    ) {
+    ) -> bool {
         let texture_atlas = texture_atlases.get_mut(&self.texture_atlas).unwrap();
         if let Some(index) =
             self.dynamic_texture_atlas_builder
                 .add_texture(texture_atlas, textures, texture)
         {
             self.glyph_to_index.insert(character, index);
+            true
         } else {
-            panic!("ran out of space in font atlas");
+            false
         }
     }
 }

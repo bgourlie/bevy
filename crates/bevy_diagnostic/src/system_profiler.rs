@@ -1,7 +1,13 @@
 use crate::{Diagnostic, DiagnosticId, Diagnostics};
 use bevy_ecs::{Profiler, Res, ResMut};
+use bevy_utils::HashMap;
 use parking_lot::RwLock;
-use std::{borrow::Cow, collections::HashMap, sync::Arc, time::Instant};
+use std::{borrow::Cow, sync::Arc};
+
+#[cfg(target_arch = "wasm32")]
+use instant::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 #[derive(Debug)]
 struct SystemRunInfo {

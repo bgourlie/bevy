@@ -1,22 +1,17 @@
 use crate::{
     resource::Resources,
-    schedule::ParallelExecutorOptions,
     system::{System, SystemId, ThreadLocalExecution},
 };
 use bevy_hecs::World;
-use parking_lot::Mutex;
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use bevy_utils::{HashMap, HashSet};
+use std::borrow::Cow;
 
 /// An ordered collection of stages, which each contain an ordered list of [System]s.
 /// Schedules are essentially the "execution plan" for an App's systems.
 /// They are run on a given [World] and [Resources] reference.
 #[derive(Default)]
 pub struct Schedule {
-    pub(crate) stages: HashMap<Cow<'static, str>, Vec<Arc<Mutex<Box<dyn System>>>>>,
+    pub(crate) stages: HashMap<Cow<'static, str>, Vec<Box<dyn System>>>,
     pub(crate) stage_order: Vec<Cow<'static, str>>,
     pub(crate) system_ids: HashSet<SystemId>,
     generation: usize,
@@ -98,7 +93,7 @@ impl Schedule {
             );
         }
         self.system_ids.insert(system.id());
-        systems.push(Arc::new(Mutex::new(system)));
+        systems.push(system);
 
         self.generation += 1;
         self
@@ -122,7 +117,7 @@ impl Schedule {
             );
         }
         self.system_ids.insert(system.id());
-        systems.insert(0, Arc::new(Mutex::new(system)));
+        systems.insert(0, system);
 
         self.generation += 1;
         self
@@ -132,7 +127,6 @@ impl Schedule {
         for stage_name in self.stage_order.iter() {
             if let Some(stage_systems) = self.stages.get_mut(stage_name) {
                 for system in stage_systems.iter_mut() {
-                    let mut system = system.lock();
                     #[cfg(feature = "profiler")]
                     crate::profiler_start(resources, system.name().clone());
                     system.update_archetype_access(world);
@@ -151,7 +145,6 @@ impl Schedule {
                 // "flush"
                 // NOTE: when this is made parallel a full sync is required here
                 for system in stage_systems.iter_mut() {
-                    let mut system = system.lock();
                     match system.thread_local_execution() {
                         ThreadLocalExecution::NextFlush => {
                             system.run_thread_local(world, resources)
@@ -163,27 +156,18 @@ impl Schedule {
         }
 
         world.clear_trackers();
+        resources.clear_trackers();
     }
 
     // TODO: move this code to ParallelExecutor
-    pub fn initialize(&mut self, resources: &mut Resources) {
+    pub fn initialize(&mut self, world: &mut World, resources: &mut Resources) {
         if self.last_initialize_generation == self.generation {
             return;
         }
 
-        let thread_pool_builder = resources
-            .get::<ParallelExecutorOptions>()
-            .map(|options| (*options).clone())
-            .unwrap_or_else(ParallelExecutorOptions::default)
-            .create_builder();
-        // For now, bevy_ecs only uses the global thread pool so it is sufficient to configure it once here.
-        // Dont call .unwrap() as the function is called twice..
-        let _ = thread_pool_builder.build_global();
-
         for stage in self.stages.values_mut() {
             for system in stage.iter_mut() {
-                let mut system = system.lock();
-                system.initialize(resources);
+                system.initialize(world, resources);
             }
         }
 

@@ -14,12 +14,14 @@
 
 // modified by Bevy contributors
 
-use crate::alloc::{
-    alloc::{alloc, dealloc, Layout},
-    boxed::Box,
-    vec,
-    vec::Vec,
+use crate::{
+    alloc::{
+        alloc::{alloc, dealloc, Layout},
+        vec::Vec,
+    },
+    Entity,
 };
+use bevy_utils::{HashMap, HashMapExt};
 use core::{
     any::{type_name, TypeId},
     cell::UnsafeCell,
@@ -27,24 +29,23 @@ use core::{
     ptr::{self, NonNull},
 };
 
-use hashbrown::HashMap;
-
 use crate::{borrow::AtomicBorrow, query::Fetch, Access, Component, Query};
 
 /// A collection of entities having the same component types
 ///
 /// Accessing `Archetype`s is only required for complex dynamic scheduling. To manipulate entities,
 /// go through the `World`.
+#[derive(Debug)]
 pub struct Archetype {
     types: Vec<TypeInfo>,
     state: HashMap<TypeId, TypeState>,
-    len: u32,
-    entities: Box<[u32]>,
+    len: usize,
+    entities: Vec<Entity>,
     // UnsafeCell allows unique references into `data` to be constructed while shared references
     // containing the `Archetype` exist
     data: UnsafeCell<NonNull<u8>>,
     data_size: usize,
-    grow_size: u32,
+    grow_size: usize,
 }
 
 impl Archetype {
@@ -54,7 +55,7 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
-    pub fn with_grow(types: Vec<TypeInfo>, grow_size: u32) -> Self {
+    pub fn with_grow(types: Vec<TypeInfo>, grow_size: usize) -> Self {
         debug_assert!(
             types.windows(2).all(|x| x[0] < x[1]),
             "type info unsorted or contains duplicates"
@@ -66,7 +67,7 @@ impl Archetype {
         Self {
             state,
             types,
-            entities: Box::new([]),
+            entities: Vec::new(),
             len: 0,
             data: UnsafeCell::new(NonNull::dangling()),
             data_size: 0,
@@ -95,6 +96,12 @@ impl Archetype {
         self.has_dynamic(TypeId::of::<T>())
     }
 
+    #[allow(missing_docs)]
+    #[inline]
+    pub fn has_type(&self, ty: TypeId) -> bool {
+        self.has_dynamic(ty)
+    }
+
     pub(crate) fn has_dynamic(&self, id: TypeId) -> bool {
         self.state.contains_key(&id)
     }
@@ -112,61 +119,21 @@ impl Archetype {
 
     #[allow(missing_docs)]
     #[inline]
-    pub fn get_with_added<T: Component>(&self) -> Option<(NonNull<T>, NonNull<bool>)> {
+    pub fn get_with_type_state<T: Component>(&self) -> Option<(NonNull<T>, &TypeState)> {
         let state = self.state.get(&TypeId::of::<T>())?;
         Some(unsafe {
             (
                 NonNull::new_unchecked(
                     (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
                 ),
-                NonNull::new_unchecked(state.added_entities.as_ptr() as *mut bool),
+                state,
             )
         })
     }
 
     #[allow(missing_docs)]
-    #[inline]
-    pub fn get_with_mutated<T: Component>(&self) -> Option<(NonNull<T>, NonNull<bool>)> {
-        let state = self.state.get(&TypeId::of::<T>())?;
-        Some(unsafe {
-            (
-                NonNull::new_unchecked(
-                    (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
-                ),
-                NonNull::new_unchecked(state.mutated_entities.as_ptr() as *mut bool),
-            )
-        })
-    }
-
-    #[allow(missing_docs)]
-    #[inline]
-    pub fn get_with_added_and_mutated<T: Component>(
-        &self,
-    ) -> Option<(NonNull<T>, NonNull<bool>, NonNull<bool>)> {
-        let state = self.state.get(&TypeId::of::<T>())?;
-        Some(unsafe {
-            (
-                NonNull::new_unchecked(
-                    (*self.data.get()).as_ptr().add(state.offset).cast::<T>() as *mut T
-                ),
-                NonNull::new_unchecked(state.added_entities.as_ptr() as *mut bool),
-                NonNull::new_unchecked(state.mutated_entities.as_ptr() as *mut bool),
-            )
-        })
-    }
-
-    #[allow(missing_docs)]
-    #[inline]
-    pub fn get_mutated<T: Component>(&self) -> Option<NonNull<bool>> {
-        let state = self.state.get(&TypeId::of::<T>())?;
-        Some(unsafe { NonNull::new_unchecked(state.mutated_entities.as_ptr() as *mut bool) })
-    }
-
-    #[allow(missing_docs)]
-    #[inline]
-    pub fn get_added<T: Component>(&self) -> Option<NonNull<bool>> {
-        let state = self.state.get(&TypeId::of::<T>())?;
-        Some(unsafe { NonNull::new_unchecked(state.added_entities.as_ptr() as *mut bool) })
+    pub fn get_type_state(&self, ty: TypeId) -> Option<&TypeState> {
+        self.state.get(&ty)
     }
 
     #[allow(missing_docs)]
@@ -216,7 +183,7 @@ impl Archetype {
 
     #[allow(missing_docs)]
     #[inline]
-    pub fn len(&self) -> u32 {
+    pub fn len(&self) -> usize {
         self.len
     }
 
@@ -227,17 +194,17 @@ impl Archetype {
     }
 
     #[allow(missing_docs)]
-    pub fn iter_entities(&self) -> impl Iterator<Item = &u32> {
-        self.entities.iter().take(self.len as usize)
+    pub fn iter_entities(&self) -> impl Iterator<Item = &Entity> {
+        self.entities.iter().take(self.len)
     }
 
     #[inline]
-    pub(crate) fn entities(&self) -> NonNull<u32> {
+    pub(crate) fn entities(&self) -> NonNull<Entity> {
         unsafe { NonNull::new_unchecked(self.entities.as_ptr() as *mut _) }
     }
 
-    pub(crate) fn entity_id(&self, index: u32) -> u32 {
-        self.entities[index as usize]
+    pub(crate) fn get_entity(&self, index: usize) -> Entity {
+        self.entities[index]
     }
 
     #[allow(missing_docs)]
@@ -251,37 +218,37 @@ impl Archetype {
         &self,
         ty: TypeId,
         size: usize,
-        index: u32,
+        index: usize,
     ) -> Option<NonNull<u8>> {
         debug_assert!(index < self.len);
         Some(NonNull::new_unchecked(
             (*self.data.get())
                 .as_ptr()
-                .add(self.state.get(&ty)?.offset + size * index as usize)
+                .add(self.state.get(&ty)?.offset + size * index)
                 .cast::<u8>(),
         ))
     }
 
     /// # Safety
     /// Every type must be written immediately after this call
-    pub unsafe fn allocate(&mut self, id: u32) -> u32 {
-        if self.len as usize == self.entities.len() {
+    pub unsafe fn allocate(&mut self, id: Entity) -> usize {
+        if self.len == self.entities.len() {
             self.grow(self.len.max(self.grow_size));
         }
 
-        self.entities[self.len as usize] = id;
+        self.entities[self.len] = id;
         self.len += 1;
         self.len - 1
     }
 
-    pub(crate) fn reserve(&mut self, additional: u32) {
+    pub(crate) fn reserve(&mut self, additional: usize) {
         if additional > (self.capacity() - self.len()) {
             self.grow(additional - (self.capacity() - self.len()));
         }
     }
 
-    fn capacity(&self) -> u32 {
-        self.entities.len() as u32
+    fn capacity(&self) -> usize {
+        self.entities.len()
     }
 
     #[allow(missing_docs)]
@@ -291,13 +258,17 @@ impl Archetype {
         }
     }
 
-    fn grow(&mut self, increment: u32) {
+    fn grow(&mut self, increment: usize) {
         unsafe {
-            let old_count = self.len as usize;
-            let count = old_count + increment as usize;
-            let mut new_entities = vec![!0; count].into_boxed_slice();
-            new_entities[0..old_count].copy_from_slice(&self.entities[0..old_count]);
-            self.entities = new_entities;
+            let old_count = self.len;
+            let count = old_count + increment;
+            self.entities.resize(
+                self.entities.len() + increment,
+                Entity {
+                    id: u32::MAX,
+                    generation: u32::MAX,
+                },
+            );
 
             for type_state in self.state.values_mut() {
                 type_state.mutated_entities.resize_with(count, || false);
@@ -335,6 +306,13 @@ impl Archetype {
                         ty.layout.size() * old_count,
                     );
                 }
+                dealloc(
+                    (*self.data.get()).as_ptr().cast(),
+                    Layout::from_size_align_unchecked(
+                        old_data_size,
+                        self.types.first().map_or(1, |x| x.layout.align()),
+                    ),
+                );
             }
 
             self.data = UnsafeCell::new(new_data);
@@ -342,7 +320,7 @@ impl Archetype {
     }
 
     /// Returns the ID of the entity moved into `index`, if any
-    pub(crate) unsafe fn remove(&mut self, index: u32) -> Option<u32> {
+    pub(crate) unsafe fn remove(&mut self, index: usize) -> Option<Entity> {
         let last = self.len - 1;
         for ty in &self.types {
             let removed = self
@@ -361,16 +339,14 @@ impl Archetype {
                 );
 
                 let type_state = self.state.get_mut(&ty.id).unwrap();
-                type_state.mutated_entities[index as usize] =
-                    type_state.mutated_entities[last as usize];
-                type_state.added_entities[index as usize] =
-                    type_state.added_entities[last as usize];
+                type_state.mutated_entities[index] = type_state.mutated_entities[last];
+                type_state.added_entities[index] = type_state.added_entities[last];
             }
         }
         self.len = last;
         if index != last {
-            self.entities[index as usize] = self.entities[last as usize];
-            Some(self.entities[last as usize])
+            self.entities[index] = self.entities[last];
+            Some(self.entities[last])
         } else {
             None
         }
@@ -379,9 +355,9 @@ impl Archetype {
     /// Returns the ID of the entity moved into `index`, if any
     pub(crate) unsafe fn move_to(
         &mut self,
-        index: u32,
+        index: usize,
         mut f: impl FnMut(*mut u8, TypeId, usize, bool, bool),
-    ) -> Option<u32> {
+    ) -> Option<Entity> {
         let last = self.len - 1;
         for ty in &self.types {
             let moved = self
@@ -389,8 +365,8 @@ impl Archetype {
                 .unwrap()
                 .as_ptr();
             let type_state = self.state.get(&ty.id).unwrap();
-            let is_added = type_state.added_entities[index as usize];
-            let is_mutated = type_state.mutated_entities[index as usize];
+            let is_added = type_state.added_entities[index];
+            let is_mutated = type_state.mutated_entities[index];
             f(moved, ty.id(), ty.layout().size(), is_added, is_mutated);
             if index != last {
                 ptr::copy_nonoverlapping(
@@ -401,16 +377,14 @@ impl Archetype {
                     ty.layout.size(),
                 );
                 let type_state = self.state.get_mut(&ty.id).unwrap();
-                type_state.added_entities[index as usize] =
-                    type_state.added_entities[last as usize];
-                type_state.mutated_entities[index as usize] =
-                    type_state.mutated_entities[last as usize];
+                type_state.added_entities[index] = type_state.added_entities[last];
+                type_state.mutated_entities[index] = type_state.mutated_entities[last];
             }
         }
         self.len -= 1;
         if index != last {
-            self.entities[index as usize] = self.entities[last as usize];
-            Some(self.entities[last as usize])
+            self.entities[index] = self.entities[last];
+            Some(self.entities[last])
         } else {
             None
         }
@@ -428,16 +402,16 @@ impl Archetype {
         component: *mut u8,
         ty: TypeId,
         size: usize,
-        index: u32,
+        index: usize,
         added: bool,
     ) {
         let state = self.state.get_mut(&ty).unwrap();
         if added {
-            state.added_entities[index as usize] = true;
+            state.added_entities[index] = true;
         }
         let ptr = (*self.data.get())
             .as_ptr()
-            .add(state.offset + size * index as usize)
+            .add(state.offset + size * index)
             .cast::<u8>();
         ptr::copy_nonoverlapping(component, ptr, size);
     }
@@ -465,11 +439,13 @@ impl Drop for Archetype {
     }
 }
 
+/// Metadata about a type stored in an archetype
+#[derive(Debug)]
 pub struct TypeState {
     offset: usize,
     borrow: AtomicBorrow,
-    pub mutated_entities: Vec<bool>,
-    pub added_entities: Vec<bool>,
+    mutated_entities: Vec<bool>,
+    added_entities: Vec<bool>,
 }
 
 impl TypeState {
@@ -490,6 +466,18 @@ impl TypeState {
         for added in self.added_entities.iter_mut() {
             *added = false;
         }
+    }
+
+    #[allow(missing_docs)]
+    #[inline]
+    pub fn mutated(&self) -> NonNull<bool> {
+        unsafe { NonNull::new_unchecked(self.mutated_entities.as_ptr() as *mut bool) }
+    }
+
+    #[allow(missing_docs)]
+    #[inline]
+    pub fn added(&self) -> NonNull<bool> {
+        unsafe { NonNull::new_unchecked(self.added_entities.as_ptr() as *mut bool) }
     }
 }
 

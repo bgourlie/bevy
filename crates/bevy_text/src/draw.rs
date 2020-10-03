@@ -15,6 +15,7 @@ use bevy_render::{
 };
 use bevy_sprite::{TextureAtlas, TextureAtlasSprite};
 
+#[derive(Clone)]
 pub struct TextStyle {
     pub font_size: f32,
     pub color: Color,
@@ -65,7 +66,7 @@ impl<'a> Drawable for DrawableText<'a> {
         {
             draw.set_index_buffer(quad_index_buffer, 0);
             if let Some(buffer_info) = render_resource_context.get_buffer_info(quad_index_buffer) {
-                indices = 0..(buffer_info.size / 2) as u32;
+                indices = 0..(buffer_info.size / 4) as u32;
             } else {
                 panic!("expected buffer type");
             }
@@ -84,6 +85,11 @@ impl<'a> Drawable for DrawableText<'a> {
         // set local per-character bindings
         for character in self.text.chars() {
             if character.is_control() {
+                if character == '\n' {
+                    caret.set_x(self.position.x());
+                    // TODO: Necessary to also calculate scaled_font.line_gap() in here?
+                    caret.set_y(caret.y() - scaled_font.height());
+                }
                 continue;
             }
 

@@ -1,7 +1,8 @@
 use crate::resource::Resources;
 use bevy_hecs::{Access, Query, World};
+use bevy_utils::HashSet;
 use fixedbitset::FixedBitSet;
-use std::{any::TypeId, borrow::Cow, collections::HashSet};
+use std::{any::TypeId, borrow::Cow};
 
 /// Determines the strategy used to run the `run_thread_local` function in a [System]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -11,12 +12,12 @@ pub enum ThreadLocalExecution {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct SystemId(pub u32);
+pub struct SystemId(pub usize);
 
 impl SystemId {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        SystemId(rand::random::<u32>())
+        SystemId(rand::random::<usize>())
     }
 }
 
@@ -30,11 +31,11 @@ pub trait System: Send + Sync {
     fn thread_local_execution(&self) -> ThreadLocalExecution;
     fn run(&mut self, world: &World, resources: &Resources);
     fn run_thread_local(&mut self, world: &mut World, resources: &mut Resources);
-    fn initialize(&mut self, _resources: &mut Resources) {}
+    fn initialize(&mut self, _world: &mut World, _resources: &mut Resources) {}
 }
 
 /// Provides information about the archetypes a [System] reads and writes
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ArchetypeAccess {
     pub immutable: FixedBitSet,
     pub mutable: FixedBitSet,

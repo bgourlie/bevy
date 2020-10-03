@@ -1,7 +1,7 @@
 use crate::components::*;
 use bevy_ecs::{Commands, Entity, IntoQuerySystem, Query, System, Without};
+use bevy_utils::HashMap;
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 pub fn missing_previous_parent_system(
     mut commands: Commands,
@@ -36,7 +36,7 @@ pub fn parent_update_system(
     }
 
     // Tracks all newly created `Children` Components this frame.
-    let mut children_additions = HashMap::<Entity, SmallVec<[Entity; 8]>>::new();
+    let mut children_additions = HashMap::<Entity, SmallVec<[Entity; 8]>>::default();
 
     // Entities with a changed Parent (that also have a PreviousParent, even if None)
     for (entity, parent, mut previous_parent) in &mut changed_parent_query.iter() {
@@ -110,6 +110,7 @@ mod test {
     use super::*;
     use crate::{hierarchy::BuildChildren, transform_systems};
     use bevy_ecs::{Resources, Schedule, World};
+    use bevy_math::Vec3;
 
     #[test]
     fn correct_children() {
@@ -124,16 +125,17 @@ mod test {
 
         // Add parent entities
         let mut commands = Commands::default();
+        commands.set_entity_reserver(world.get_entity_reserver());
         let mut parent = None;
         let mut children = Vec::new();
         commands
-            .spawn((Translation::new(1.0, 0.0, 0.0), Transform::identity()))
+            .spawn((Transform::from_translation(Vec3::new(1.0, 0.0, 0.0)),))
             .for_current_entity(|entity| parent = Some(entity))
             .with_children(|parent| {
                 parent
-                    .spawn((Translation::new(0.0, 2.0, 0.0), Transform::identity()))
+                    .spawn((Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),))
                     .for_current_entity(|entity| children.push(entity))
-                    .spawn((Translation::new(0.0, 0.0, 3.0), Transform::identity()))
+                    .spawn((Transform::from_translation(Vec3::new(0.0, 0.0, 3.0)),))
                     .for_current_entity(|entity| children.push(entity));
             });
         let parent = parent.unwrap();

@@ -10,7 +10,7 @@ use bevy_render::{
     prelude::Draw,
     render_graph::base::MainPass,
 };
-use bevy_transform::prelude::{Rotation, Scale, Transform, Translation};
+use bevy_transform::prelude::{GlobalTransform, Transform};
 
 #[derive(Bundle)]
 pub struct SpriteComponents {
@@ -21,9 +21,7 @@ pub struct SpriteComponents {
     pub draw: Draw,
     pub render_pipelines: RenderPipelines,
     pub transform: Transform,
-    pub translation: Translation,
-    pub rotation: Rotation,
-    pub scale: Scale,
+    pub global_transform: GlobalTransform,
 }
 
 impl Default for SpriteComponents {
@@ -56,25 +54,26 @@ impl Default for SpriteComponents {
             main_pass: MainPass,
             material: Default::default(),
             transform: Default::default(),
-            translation: Default::default(),
-            rotation: Default::default(),
-            scale: Default::default(),
+            global_transform: Default::default(),
         }
     }
 }
 
+/// A Bundle of components for drawing a single sprite from a sprite sheet (also referred
+/// to as a `TextureAtlas`)
 #[derive(Bundle)]
 pub struct SpriteSheetComponents {
+    /// The specific sprite from the texture atlas to be drawn
     pub sprite: TextureAtlasSprite,
+    /// A handle to the texture atlas that holds the sprite images
     pub texture_atlas: Handle<TextureAtlas>,
+    /// Data pertaining to how the sprite is drawn on the screen
     pub draw: Draw,
     pub render_pipelines: RenderPipelines,
     pub main_pass: MainPass,
     pub mesh: Handle<Mesh>, // TODO: maybe abstract this out
     pub transform: Transform,
-    pub translation: Translation,
-    pub rotation: Rotation,
-    pub scale: Scale,
+    pub global_transform: GlobalTransform,
 }
 
 impl Default for SpriteSheetComponents {
@@ -107,9 +106,7 @@ impl Default for SpriteSheetComponents {
             sprite: Default::default(),
             texture_atlas: Default::default(),
             transform: Default::default(),
-            translation: Default::default(),
-            rotation: Default::default(),
-            scale: Default::default(),
+            global_transform: Default::default(),
         }
     }
 }

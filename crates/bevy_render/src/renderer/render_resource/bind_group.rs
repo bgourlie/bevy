@@ -1,6 +1,6 @@
 use super::{BufferId, RenderResourceBinding, SamplerId, TextureId};
+use bevy_utils::AHasher;
 use std::{
-    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     ops::Range,
     sync::Arc,
@@ -18,8 +18,8 @@ pub struct IndexedBindGroupEntry {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct BindGroup {
     pub id: BindGroupId,
-    pub indexed_bindings: Arc<Vec<IndexedBindGroupEntry>>,
-    pub dynamic_uniform_indices: Option<Arc<Vec<u32>>>,
+    pub indexed_bindings: Arc<[IndexedBindGroupEntry]>,
+    pub dynamic_uniform_indices: Option<Arc<[u32]>>,
 }
 
 impl BindGroup {
@@ -32,7 +32,7 @@ impl BindGroup {
 pub struct BindGroupBuilder {
     pub indexed_bindings: Vec<IndexedBindGroupEntry>,
     pub dynamic_uniform_indices: Vec<u32>,
-    pub hasher: DefaultHasher,
+    pub hasher: AHasher,
 }
 
 impl BindGroupBuilder {
@@ -94,11 +94,11 @@ impl BindGroupBuilder {
         self.indexed_bindings.sort_by_key(|i| i.index);
         BindGroup {
             id: BindGroupId(self.hasher.finish()),
-            indexed_bindings: Arc::new(self.indexed_bindings),
+            indexed_bindings: self.indexed_bindings.into(),
             dynamic_uniform_indices: if self.dynamic_uniform_indices.is_empty() {
                 None
             } else {
-                Some(Arc::new(self.dynamic_uniform_indices))
+                Some(self.dynamic_uniform_indices.into())
             },
         }
     }

@@ -86,7 +86,7 @@ pub trait RenderResources: Send + Sync + 'static {
     fn get_render_resource_hints(&self, _index: usize) -> Option<RenderResourceHints> {
         None
     }
-    fn iter_render_resources(&self) -> RenderResourceIterator;
+    fn iter(&self) -> RenderResourceIterator;
 }
 
 pub struct RenderResourceIterator<'a> {
@@ -179,14 +179,14 @@ where
     }
 }
 
-impl RenderResources for bevy_transform::prelude::Transform {
+impl RenderResources for bevy_transform::prelude::GlobalTransform {
     fn render_resources_len(&self) -> usize {
         1
     }
 
     fn get_render_resource(&self, index: usize) -> Option<&dyn RenderResource> {
         if index == 0 {
-            Some(&self.value)
+            Some(self.value())
         } else {
             None
         }
@@ -200,7 +200,7 @@ impl RenderResources for bevy_transform::prelude::Transform {
         }
     }
 
-    fn iter_render_resources(&self) -> RenderResourceIterator {
+    fn iter(&self) -> RenderResourceIterator {
         RenderResourceIterator::new(self)
     }
 }

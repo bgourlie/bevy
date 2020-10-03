@@ -12,8 +12,8 @@ use crate::{
     },
 };
 use bevy_asset::{Assets, Handle};
-use bevy_ecs::{HecsQuery, Resources, World};
-use std::marker::PhantomData;
+use bevy_ecs::{HecsQuery, ReadOnlyFetch, Resources, World};
+use std::{marker::PhantomData, ops::Deref};
 
 struct CameraInfo {
     name: String,
@@ -108,7 +108,10 @@ impl<Q: HecsQuery> PassNode<Q> {
     }
 }
 
-impl<Q: HecsQuery + Send + Sync + 'static> Node for PassNode<Q> {
+impl<Q: HecsQuery + Send + Sync + 'static> Node for PassNode<Q>
+where
+    Q::Fetch: ReadOnlyFetch,
+{
     fn input(&self) -> &[ResourceSlotInfo] {
         &self.inputs
     }
@@ -190,7 +193,7 @@ impl<Q: HecsQuery + Send + Sync + 'static> Node for PassNode<Q> {
                     // attempt to draw each visible entity
                     let mut draw_state = DrawState::default();
                     for visible_entity in visible_entities.iter() {
-                        if let Ok(mut query_one) = world.query_one::<Q>(visible_entity.entity) {
+                        if let Ok(query_one) = world.query_one::<Q>(visible_entity.entity) {
                             if query_one.get().is_none() {
                                 // visible entity does not match the Pass query
                                 continue;
@@ -278,7 +281,7 @@ impl<Q: HecsQuery + Send + Sync + 'static> Node for PassNode<Q> {
                                         *bind_group,
                                         dynamic_uniform_indices
                                             .as_ref()
-                                            .map(|indices| indices.as_slice()),
+                                            .map(|indices| indices.deref()),
                                     );
                                     draw_state.set_bind_group(*index, *bind_group);
                                 }

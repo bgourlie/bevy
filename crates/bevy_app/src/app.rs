@@ -57,23 +57,28 @@ impl App {
     }
 
     pub fn update(&mut self) {
-        self.schedule.initialize(&mut self.resources);
+        self.schedule
+            .initialize(&mut self.world, &mut self.resources);
         self.executor
             .run(&mut self.schedule, &mut self.world, &mut self.resources);
     }
 
     pub fn run(mut self) {
-        self.startup_schedule.initialize(&mut self.resources);
+        self.startup_schedule
+            .initialize(&mut self.world, &mut self.resources);
+        self.startup_executor.initialize(&mut self.resources);
         self.startup_executor.run(
             &mut self.startup_schedule,
             &mut self.world,
             &mut self.resources,
         );
 
+        self.executor.initialize(&mut self.resources);
         let runner = std::mem::replace(&mut self.runner, Box::new(run_once));
         (runner)(self);
     }
 }
 
 /// An event that indicates the app should exit. This will fully exit the app process.
+#[derive(Clone)]
 pub struct AppExit;
